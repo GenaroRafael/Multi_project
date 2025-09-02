@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "utils_cod"
+version = "0.1.0"
+description = "Paquete de utilidades internas para microservicios"
+authors = ["Tu Nombre <tuemail@ejemplo.com>"]
+readme = "README.md"
+packages = [
+    { include = "utils" },
+    { include = "airflow_conciliador" },
+    { include = "k_link" }
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+pymongo = "^4.0"
+requests = "^2.28"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,0 +1,152 @@
+version: "3.9"
+
+# ---------------------
+# Variables comunes para microservicios
+# ---------------------
+x-env: &default-env
+  MONGO_URI: "mongodb://mongo:27017/venta_internet"
+  REDIS_URL: "redis://redis:6379/0"
+
+services:
+  # ---------------------
+  # Bases de datos
+  # ---------------------
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports: ["27017:27017"]
+    volumes:
+      - mongo_data:/data/db
+    env_file: .env
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    volumes:
+      - redis_data:/data
+    networks: [backend]
+
+  redis-airflow:
+    image: redis:7
+    restart: unless-stopped
+    networks: [airflow]
+
+  postgres-airflow:
+    image: postgres:15
+    env_file: .env
+    volumes:
+      - pg_airflow:/var/lib/postgresql/data
+    networks: [airflow]
+
+  # ---------------------
+  # Airflow con Poetry
+  # ---------------------
+  airflow-webserver:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    command: webserver
+    env_file: .env
+    depends_on:
+      - airflow-scheduler
+      - airflow-worker
+      - airflow-triggerer
+      - postgres-airflow
+      - redis-airflow
+    ports: ["8080:8080"]  # UI Airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks: [airflow, backend]
+
+  airflow-scheduler:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    command: scheduler
+    env_file: .env
+    depends_on: [postgres-airflow, redis-airflow]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks: [airflow]
+
+  airflow-worker:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    command: celery worker
+    env_file: .env
+    depends_on: [postgres-airflow, redis-airflow]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks: [airflow, backend]
+
+  airflow-triggerer:
+    build:
+      context: ./airflow
+      dockerfile: Dockerfile
+    command: triggerer
+    env_file: .env
+    depends_on: [postgres-airflow]
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/plugins:/opt/airflow/plugins
+    networks: [airflow]
+
+  # ---------------------
+  # Microservicios (ejemplo)
+  # ---------------------
+  svc-catalogo:
+    build: ../servicios/catalogo
+    environment:
+      <<: *default-env
+      SERVICE_NAME: catalogo
+    depends_on: [mongo, redis]
+    ports: ["8001:8000"]  # ⚠️ Solo para desarrollo
+    networks: [backend]
+
+  svc-facturacion:
+    build: ../servicios/facturacion
+    environment:
+      <<: *default-env
+      SERVICE_NAME: facturacion
+    depends_on: [mongo, redis]
+    ports: ["8002:8000"]  # ⚠️ Solo para desarrollo
+    networks: [backend]
+
+  # ---------------------
+  # Frontend (Vue + Vite)
+  # ---------------------
+  front:
+    build: ../front
+    depends_on: [svc-catalogo, svc-facturacion]
+    ports: ["5173:5173"]   # ⚠️ Solo para desarrollo
+    networks: [backend]
+
+# ---------------------
+# Redes
+# ---------------------
+networks:
+  backend:
+  airflow:
+
+# ---------------------
+# Volúmenes
+# ---------------------
+volumes:
+  mongo_data:
+  redis_data:
+  pg_airflow:
